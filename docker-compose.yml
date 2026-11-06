@@ -1,0 +1,80 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: radiology-db
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-radiology_root_secret}
+      MYSQL_DATABASE: ${DB_NAME:-radiology_exam}
+      MYSQL_USER: ${DB_USER:-radiology}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-radiology123}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - radiology-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-radiology_root_secret}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: radiology-backend
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      DB_HOST: ${DB_HOST:-db}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_USER: ${DB_USER:-radiology}
+      DB_PASSWORD: ${DB_PASSWORD:-radiology123}
+      DB_NAME: ${DB_NAME:-radiology_exam}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-user}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      SECRET_KEY: ${SECRET_KEY:-radiology-exam-secret-key-change-in-production-2026}
+      UPLOAD_MAX_SIZE_MB: ${UPLOAD_MAX_SIZE_MB:-500}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - radiology-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: radiology-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - radiology-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: radiology-nginx
+    restart: unless-stopped
+    ports:
+      - "${PORT:-9020}:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/mime.types:/etc/nginx/mime.types:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - radiology-net
+
+volumes:
+  mysql-data:
+
+networks:
+  radiology-net:
+    driver: bridge
